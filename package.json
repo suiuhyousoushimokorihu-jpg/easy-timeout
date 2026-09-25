@@ -1,0 +1,16 @@
+{
+  "name": "easy-timeout",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Easy Timeout - a lightweight Discord bot for fast, member-triggered secondary defense.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.27.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
