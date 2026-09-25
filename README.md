@@ -119,13 +119,20 @@ Shows the current guild configuration and permission diagnostics.
 #### `/reload`
 Reloads `config.json` without restarting the bot. Invalid JSON or invalid settings are rejected without replacing the currently loaded configuration.
 
+#### `/language`
+Easy Timeout supports English and Japanese. `/language language:<selection>` can select Auto, Japanese, or English for each server (Manage Server permission required).
+
+Auto uses the interaction locale for slash commands and the server's preferred locale for message triggers. Trigger words are independent of the UI language. `/status` shows the current language mode.
+
+The setting is saved as `language: "auto"`, `"ja"`, or `"en"` in each guild entry. Existing entries without it default to Auto; invalid values are rejected without overwriting the configuration. Slash command descriptions continue to use Discord's localization independently.
+
 ### Safety model
 
 - Only configured roles can activate the emergency timeout.
 - Members with Manage Server can always activate/manage it.
 - Server owner, bots, Administrators, Manage Server users, Moderate Members users, and configured protected roles cannot be targeted.
 - Cooldown is per guild and per activating user.
-- Cooldown starts only after a successful timeout.
+- Cooldown starts only after a successful timeout. Server owners and Administrators bypass cooldowns.
 - A user already timed out is not timed out again.
 - No message deletion, kick, or ban is performed.
 - Actions are printed to the process console and a notification is posted in the channel.
@@ -278,13 +285,20 @@ npm start
 #### `/reload`
 Botを再起動せず `config.json` を再読込します。不正なJSONや不正な設定値の場合、現在読み込まれている正常な設定を維持します。
 
+#### `/language`
+Easy Timeoutは日本語・英語に対応しています。`/language language:<選択>` でサーバーごとに自動（Auto）/ 日本語 / Englishを切り替えられます（サーバー管理権限が必要）。
+
+自動ではSlash Commandの実行者のlocale、通常メッセージ発動ではサーバーのpreferred localeを使用します。発動文言と言語設定は独立しています。`/status` で現在の言語設定を確認できます。
+
+各Guild設定の `language` に `auto` / `ja` / `en` を保存します。既存設定に項目がない場合は自動として扱い、不正値は設定ファイルを上書きせずエラーにします。コマンド説明文は引き続きDiscordのLocalizationで表示されます。
+
 ### 安全設計
 
 - 許可ロールを持つユーザーのみ発動可能
 - サーバー管理権限保持者は常に発動・管理可能
 - サーバー所有者、Bot、Administrator、サーバー管理権限保持者、Moderate Members保持者、保護ロールは対象外
 - クールタイムはサーバーごと・発動者ごと
-- クールタイムはタイムアウト成功時のみ開始
+- クールタイムはタイムアウト成功時のみ開始（サーバー所有者・Administratorはクールタイムを無視）
 - 既にタイムアウト中の対象には再発動しない
 - メッセージ削除・Kick・BANは行わない
 - 成功した発動はコンソールに記録し、発動チャンネルへ通知

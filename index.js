@@ -2,6 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const {
   Client,
+  Events,
+  Locale,
   GatewayIntentBits,
   PermissionFlagsBits,
   SlashCommandBuilder,
@@ -38,6 +40,7 @@ if (!TOKEN || TOKEN === 'YOUR_BOT_TOKEN_HERE') {
 }
 
 const DEFAULT_GUILD = {
+  language: 'auto',
   triggers: [
     '荒らし', 'あらし',
     'スパム',
@@ -53,6 +56,7 @@ const DEFAULT_GUILD = {
 
 const COOLDOWNS = new Set([0, 30, 360, 1800, 3600, 21600, 86400]);
 const TIMEOUTS = new Set([30, 360, 1800, 3600, 21600, 86400]);
+const LANGUAGES = new Set(['auto', 'ja', 'en']);
 const cooldowns = new Map();
 
 function cloneDefault() {
@@ -85,6 +89,8 @@ function validateConfig(data) {
     }
     if (!COOLDOWNS.has(g.cooldownSeconds)) throw new Error(`Invalid cooldownSeconds: ${guildId}`);
     if (!TIMEOUTS.has(g.timeoutSeconds)) throw new Error(`Invalid timeoutSeconds: ${guildId}`);
+    if (g.language === undefined) g.language = 'auto';
+    if (!LANGUAGES.has(g.language)) throw new Error(`Invalid language for guild ${guildId}: expected auto, ja, or en.`);
   }
 
   return data;
@@ -117,6 +123,10 @@ function ensureGuild(guildId) {
 
 function isJa(locale) {
   return String(locale || '').toLowerCase().startsWith('ja');
+}
+
+function messageLocale(guildConfig, fallbackLocale) {
+  return guildConfig.language && guildConfig.language !== 'auto' ? guildConfig.language : fallbackLocale;
 }
 
 function text(locale, en, ja) {
@@ -171,50 +181,87 @@ const cooldownChoices = [
 
 const timeoutChoices = cooldownChoices.filter(x => x.value !== 0);
 
-function roleGroup(name, description) {
+function roleGroup(name, description, addDescription, removeDescription, roleDescription) {
   return group => group
     .setName(name)
-    .setDescription(description)
-    .addSubcommand(sub => sub.setName('add').setDescription('Add role / ロールを追加')
-      .addRoleOption(o => o.setName('role').setDescription('Role / ロール').setRequired(true)))
-    .addSubcommand(sub => sub.setName('remove').setDescription('Remove role / ロールを削除')
-      .addRoleOption(o => o.setName('role').setDescription('Role / ロール').setRequired(true)));
+    .setDescription(description[0])
+    .setDescriptionLocalizations({ [Locale.Japanese]: description[1] })
+    .addSubcommand(sub => sub.setName('add')
+      .setDescription(addDescription[0])
+      .setDescriptionLocalizations({ [Locale.Japanese]: addDescription[1] })
+      .addRoleOption(o => o.setName('role')
+        .setDescription(roleDescription[0])
+        .setDescriptionLocalizations({ [Locale.Japanese]: roleDescription[1] })
+        .setRequired(true)))
+    .addSubcommand(sub => sub.setName('remove')
+      .setDescription(removeDescription[0])
+      .setDescriptionLocalizations({ [Locale.Japanese]: removeDescription[1] })
+      .addRoleOption(o => o.setName('role')
+        .setDescription(roleDescription[0])
+        .setDescriptionLocalizations({ [Locale.Japanese]: roleDescription[1] })
+        .setRequired(true)));
 }
 
 const commands = [
   new SlashCommandBuilder()
     .setName('trigger')
-    .setDescription('Manage trigger words / 発動文言を管理')
+    .setDescription('Manage the words that trigger Easy Timeout.').setDescriptionLocalizations({ [Locale.Japanese]: 'Easy Timeoutを発動するキーワードを管理します。' })
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-    .addSubcommand(s => s.setName('add').setDescription('Add trigger / 発動文言を追加')
-      .addStringOption(o => o.setName('word').setDescription('Trigger word / 発動文言').setRequired(true).setMinLength(1).setMaxLength(32)))
-    .addSubcommand(s => s.setName('edit').setDescription('Edit trigger / 発動文言を編集')
-      .addStringOption(o => o.setName('old').setDescription('Current word / 現在の文言').setRequired(true).setMinLength(1).setMaxLength(32))
-      .addStringOption(o => o.setName('new').setDescription('New word / 新しい文言').setRequired(true).setMinLength(1).setMaxLength(32)))
-    .addSubcommand(s => s.setName('remove').setDescription('Remove trigger / 発動文言を削除')
-      .addStringOption(o => o.setName('word').setDescription('Trigger word / 発動文言').setRequired(true).setMinLength(1).setMaxLength(32))),
+    .addSubcommand(s => s.setName('add').setDescription('Add a new trigger word.').setDescriptionLocalizations({ [Locale.Japanese]: 'Easy Timeoutを発動するキーワードを追加します。' })
+      .addStringOption(o => o.setName('word').setDescription('The trigger word to add.').setDescriptionLocalizations({ [Locale.Japanese]: '追加する発動キーワード' }).setRequired(true).setMinLength(1).setMaxLength(32)))
+    .addSubcommand(s => s.setName('edit').setDescription('Edit an existing trigger word.').setDescriptionLocalizations({ [Locale.Japanese]: '登録済みの発動キーワードを変更します。' })
+      .addStringOption(o => o.setName('old').setDescription('The trigger word to replace.').setDescriptionLocalizations({ [Locale.Japanese]: '変更前の発動キーワード' }).setRequired(true).setMinLength(1).setMaxLength(32))
+      .addStringOption(o => o.setName('new').setDescription('The new trigger word.').setDescriptionLocalizations({ [Locale.Japanese]: '変更後の発動キーワード' }).setRequired(true).setMinLength(1).setMaxLength(32)))
+    .addSubcommand(s => s.setName('remove').setDescription('Remove a trigger word.').setDescriptionLocalizations({ [Locale.Japanese]: '登録済みの発動キーワードを削除します。' })
+      .addStringOption(o => o.setName('word').setDescription('The trigger word to remove.').setDescriptionLocalizations({ [Locale.Japanese]: '削除する発動キーワード' }).setRequired(true).setMinLength(1).setMaxLength(32))),
 
   new SlashCommandBuilder()
     .setName('config')
-    .setDescription('Configure Easy Timeout / Easy Timeout を設定')
+    .setDescription('Configure how Easy Timeout works in this server.').setDescriptionLocalizations({ [Locale.Japanese]: 'このサーバーでのEasy Timeoutの動作を設定します。' })
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-    .addSubcommandGroup(roleGroup('allowed-role', 'Roles allowed to trigger / 発動可能ロール'))
-    .addSubcommandGroup(roleGroup('protected-role', 'Roles protected from timeout / 保護ロール'))
-    .addSubcommandGroup(roleGroup('mention-role', 'Roles mentioned on activation / 発動時メンションロール'))
-    .addSubcommand(s => s.setName('cooldown').setDescription('Set cooldown / クールタイムを設定')
-      .addIntegerOption(o => o.setName('value').setDescription('Cooldown / クールタイム').setRequired(true).addChoices(...cooldownChoices)))
-    .addSubcommand(s => s.setName('timeout').setDescription('Set timeout duration / タイムアウト時間を設定')
-      .addIntegerOption(o => o.setName('value').setDescription('Timeout / タイムアウト').setRequired(true).addChoices(...timeoutChoices))),
+    .addSubcommandGroup(roleGroup('allowed-role',
+      ['Manage roles allowed to trigger Easy Timeout.', 'Easy Timeoutを発動できるロールを管理します。'],
+      ['Allow a role to trigger Easy Timeout.', 'Easy Timeoutを発動できるロールを追加します。'],
+      ['Remove a role from the allowed roles.', 'Easy Timeoutを発動できるロールから削除します。'],
+      ['The role whose members can trigger Easy Timeout.', 'Easy Timeoutの発動を許可するロール']))
+    .addSubcommandGroup(roleGroup('protected-role',
+      ['Manage roles protected from Easy Timeout.', 'Easy Timeoutの対象にならない保護ロールを管理します。'],
+      ['Protect a role from Easy Timeout.', 'Easy Timeoutの対象にならない保護ロールを追加します。'],
+      ['Remove a role from the protected roles.', 'Easy Timeoutの保護ロールから削除します。'],
+      ['The role to protect from Easy Timeout.', 'Easy Timeoutの対象外にするロール']))
+    .addSubcommandGroup(roleGroup('mention-role',
+      ['Manage roles notified when Easy Timeout is triggered.', 'Easy Timeout発動時に通知するロールを管理します。'],
+      ['Add a role to notify when Easy Timeout is triggered.', 'Easy Timeout発動時にメンションする通知ロールを追加します。'],
+      ['Remove a role from trigger notifications.', 'Easy Timeout発動時の通知ロールから削除します。'],
+      ['The role to notify when Easy Timeout is triggered.', 'Easy Timeout発動時に通知するロール']))
+    .addSubcommand(s => s.setName('cooldown').setDescription('Set how long a user must wait before triggering Easy Timeout again.').setDescriptionLocalizations({ [Locale.Japanese]: '同じユーザーが次にEasy Timeoutを発動できるまでの待機時間を設定します。' })
+      .addIntegerOption(o => o.setName('value').setDescription('Time before the user can trigger Easy Timeout again.').setDescriptionLocalizations({ [Locale.Japanese]: '発動者が再度使用できるまでの時間' }).setRequired(true).addChoices(...cooldownChoices)))
+    .addSubcommand(s => s.setName('timeout').setDescription('Set how long the target is timed out when Easy Timeout is triggered.').setDescriptionLocalizations({ [Locale.Japanese]: 'Easy Timeout発動時に対象をタイムアウトする時間を設定します。' })
+      .addIntegerOption(o => o.setName('value').setDescription('How long the target will be timed out.').setDescriptionLocalizations({ [Locale.Japanese]: '対象を一時隔離する時間' }).setRequired(true).addChoices(...timeoutChoices))),
 
   new SlashCommandBuilder()
     .setName('status')
-    .setDescription('Show settings and diagnostics / 設定と診断を表示')
+    .setDescription('Show the current Easy Timeout settings and permission status.').setDescriptionLocalizations({ [Locale.Japanese]: '現在のEasy Timeoutの設定とBotの権限・動作状態を確認します。' })
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   new SlashCommandBuilder()
     .setName('reload')
-    .setDescription('Reload config.json / config.jsonを再読込')
+    .setDescription('Reload Easy Timeout settings from config.json.').setDescriptionLocalizations({ [Locale.Japanese]: 'config.jsonを再読み込みしてEasy Timeoutの設定を反映します。' })
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+  new SlashCommandBuilder()
+    .setName('language')
+    .setDescription('Change the language used by Easy Timeout in this server.')
+    .setDescriptionLocalizations({ [Locale.Japanese]: 'このサーバーでEasy Timeoutが使用する言語を変更します。' })
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addStringOption(o => o.setName('language')
+      .setDescription('Language used for Easy Timeout messages.')
+      .setDescriptionLocalizations({ [Locale.Japanese]: 'Easy Timeoutのメッセージに使用する言語' })
+      .setRequired(true)
+      .addChoices(
+        { name: 'Auto', value: 'auto' },
+        { name: '日本語', value: 'ja' },
+        { name: 'English', value: 'en' },
+      )),
 ].map(command => command.toJSON());
 
 const client = new Client({
@@ -229,7 +276,7 @@ async function registerCommands(guild) {
   }
 }
 
-client.once('ready', async () => {
+client.once(Events.ClientReady, async () => {
   let changed = false;
   for (const guild of client.guilds.cache.values()) changed = ensureGuild(guild.id) || changed;
   if (changed) saveConfig();
@@ -254,9 +301,29 @@ client.on('interactionCreate', async interaction => {
 
   ensureGuild(interaction.guild.id);
   const g = config.guilds[interaction.guild.id];
-  const locale = interaction.locale;
+  let locale = messageLocale(g, interaction.locale);
 
   try {
+    if (interaction.commandName === 'language') {
+      const language = interaction.options.getString('language', true);
+      if (!LANGUAGES.has(language)) {
+        return privateReply(interaction, text(locale, 'Invalid language. Choose Auto, Japanese, or English.', '言語が不正です。Auto、日本語、Englishから選択してください。'));
+      }
+      const previous = g.language;
+      g.language = language;
+      try {
+        saveConfig();
+      } catch (error) {
+        g.language = previous;
+        throw error;
+      }
+      locale = messageLocale(g, interaction.locale);
+      const confirmation = language === 'ja' ? '言語を日本語に変更しました。'
+        : language === 'en' ? 'Language changed to English.'
+          : text(locale, 'Language mode changed to Auto.', '言語設定を自動に変更しました。');
+      return privateReply(interaction, confirmation);
+    }
+
     if (interaction.commandName === 'trigger') {
       const sub = interaction.options.getSubcommand();
 
@@ -323,8 +390,8 @@ client.on('interactionCreate', async interaction => {
       ].join('\n');
 
       const body = isJa(locale)
-        ? `**Easy Timeout**\n\n**診断**\n${checks}\n\n**発動文言**\n${g.triggers.join(' / ') || '—'}\n\n**発動可能ロール**\n${roleList(interaction.guild, g.allowedRoles)}\n\n**保護ロール**\n${roleList(interaction.guild, g.protectedRoles)}\n\n**クールタイム**\n${duration(g.cooldownSeconds, locale)}\n\n**タイムアウト**\n${duration(g.timeoutSeconds, locale)}\n\n**通知メンション**\n${roleList(interaction.guild, g.mentionRoles)}\n\nBotロールは対象メンバーより上に配置してください。`
-        : `**Easy Timeout**\n\n**Diagnostics**\n${checks}\n\n**Triggers**\n${g.triggers.join(' / ') || '—'}\n\n**Allowed roles**\n${roleList(interaction.guild, g.allowedRoles)}\n\n**Protected roles**\n${roleList(interaction.guild, g.protectedRoles)}\n\n**Cooldown**\n${duration(g.cooldownSeconds, locale)}\n\n**Timeout**\n${duration(g.timeoutSeconds, locale)}\n\n**Notification roles**\n${roleList(interaction.guild, g.mentionRoles)}\n\nPlace the bot role above members it needs to time out.`;
+        ? `**Easy Timeout**\n\n**言語**\n${g.language === 'auto' ? 'Auto' : text(g.language, 'English', '日本語')}\n\n**診断**\n${checks}\n\n**発動文言**\n${g.triggers.join(' / ') || '—'}\n\n**発動可能ロール**\n${roleList(interaction.guild, g.allowedRoles)}\n\n**保護ロール**\n${roleList(interaction.guild, g.protectedRoles)}\n\n**クールタイム**\n${duration(g.cooldownSeconds, locale)}\n\n**タイムアウト**\n${duration(g.timeoutSeconds, locale)}\n\n**通知メンション**\n${roleList(interaction.guild, g.mentionRoles)}\n\nBotロールは対象メンバーより上に配置してください。`
+        : `**Easy Timeout**\n\n**Language**\n${g.language === 'auto' ? 'Auto' : text(g.language, 'English', '日本語')}\n\n**Diagnostics**\n${checks}\n\n**Triggers**\n${g.triggers.join(' / ') || '—'}\n\n**Allowed roles**\n${roleList(interaction.guild, g.allowedRoles)}\n\n**Protected roles**\n${roleList(interaction.guild, g.protectedRoles)}\n\n**Cooldown**\n${duration(g.cooldownSeconds, locale)}\n\n**Timeout**\n${duration(g.timeoutSeconds, locale)}\n\n**Notification roles**\n${roleList(interaction.guild, g.mentionRoles)}\n\nPlace the bot role above members it needs to time out.`;
 
       return privateReply(interaction, body);
     }
@@ -335,6 +402,7 @@ client.on('interactionCreate', async interaction => {
       let changed = false;
       for (const guild of client.guilds.cache.values()) changed = ensureGuild(guild.id) || changed;
       if (changed) saveConfig();
+      locale = messageLocale(config.guilds[interaction.guild.id], interaction.locale);
       return privateReply(interaction, text(locale, 'config.json reloaded.', 'config.json を再読込しました。'));
     }
   } catch (error) {
@@ -360,16 +428,13 @@ async function resolveTarget(message) {
   return { member, commandText };
 }
 
-async function sendNotice(message, target, g) {
-  const locale = message.guild.preferredLocale;
+async function sendNotice(message, g) {
   const roleIds = g.mentionRoles.filter(id => id !== message.guild.id && message.guild.roles.cache.has(id));
   const pings = roleIds.map(id => `<@&${id}>`).join(' ');
-  const body = isJa(locale)
-    ? `🚨 **緊急タイムアウトを実行しました**\n対象: ${target}\n発動者: ${message.author}\n時間: ${duration(g.timeoutSeconds, locale)}`
-    : `🚨 **Easy Timeout activated**\nTarget: ${target}\nTriggered by: ${message.author}\nDuration: ${duration(g.timeoutSeconds, locale)}`;
+  const body = text(messageLocale(g, message.guild.preferredLocale), 'Timeout applied.', 'タイムアウトを実行しました。');
 
   await message.channel.send({
-    content: pings ? `${pings}\n${body}` : body,
+    content: pings ? `${pings} ${body}` : body,
     allowedMentions: { parse: [], roles: roleIds },
   });
 }
@@ -393,13 +458,14 @@ client.on('messageCreate', async message => {
 
   const actor = message.member;
   const target = resolved.member;
-  const locale = message.guild.preferredLocale;
+  const locale = messageLocale(g, message.guild.preferredLocale);
 
   if (!actor || !target || !canTrigger(actor, g)) return;
   if (target.id === actor.id) return replyNoPing(message, text(locale, 'You cannot target yourself.', '自分自身には発動できません。'));
   if (isProtected(target, g)) return replyNoPing(message, text(locale, 'That member is protected.', 'そのメンバーは保護されています。'));
 
-  const left = cooldownLeft(message.guild.id, actor.id);
+  const bypassCooldown = actor.id === message.guild.ownerId || actor.permissions.has(PermissionFlagsBits.Administrator);
+  const left = bypassCooldown ? 0 : cooldownLeft(message.guild.id, actor.id);
   if (left > 0) return replyNoPing(message, text(locale, `Cooldown: ${duration(left, locale)} remaining.`, `クールタイム中です。残り約${duration(left, locale)}。`));
 
   if (target.communicationDisabledUntilTimestamp && target.communicationDisabledUntilTimestamp > Date.now()) {
@@ -412,12 +478,12 @@ client.on('messageCreate', async message => {
 
   try {
     await target.timeout(g.timeoutSeconds * 1000, `Easy Timeout trigger by ${message.author.tag} (${message.author.id}): ${trigger}`);
-    startCooldown(message.guild.id, actor.id, g.cooldownSeconds);
+    if (!bypassCooldown) startCooldown(message.guild.id, actor.id, g.cooldownSeconds);
 
     console.log(`[${new Date().toISOString()}] ${message.guild.name} | ${message.author.tag} -> ${target.user.tag} | ${g.timeoutSeconds}s | ${trigger}`);
 
     try {
-      await sendNotice(message, target, g);
+      await sendNotice(message, g);
     } catch (error) {
       console.error('Notification error:', error.message);
     }
